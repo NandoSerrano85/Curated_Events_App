@@ -1,0 +1,282 @@
+# Docker Compose for Message Queue Services
+# NATS, Kafka, and supporting services for Events Platform
+
+version: '3.8'
+
+services:
+  # NATS Server
+  nats:
+    image: nats:2.10-alpine
+    container_name: events-platform-nats
+    ports:
+      - "4222:4222"  # Client connections
+      - "6222:6222"  # Cluster connections
+      - "8222:8222"  # HTTP monitoring
+    volumes:
+      - ./nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - nats_data:/var/lib/nats/jetstream
+      - nats_logs:/var/log/nats
+    command: 
+      - -c
+      - /etc/nats/nats-server.conf
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4222"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Zookeeper (required for Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: events-platform-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+      ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT: 3
+      ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL: 24
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Kafka Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: events-platform-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"  # JMX
+    environment:
+      # Basic Kafka configuration
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      
+      # Topic configuration
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_DELETE_TOPIC_ENABLE: 'true'
+      
+      # Performance tuning
+      KAFKA_COMPRESSION_TYPE: 'lz4'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      
+      # JMX monitoring
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      
+      # Kafka Connect
+      KAFKA_CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+      
+      # Memory settings
+      KAFKA_HEAP_OPTS: '-Xmx2G -Xms2G'
+      
+      # Security (disabled for development)
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: 'true'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+      - kafka_logs:/var/log/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Kafka UI (for development and monitoring)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: events-platform-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8089:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: events-platform
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Schema Registry (optional, for Avro support)
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    container_name: events-platform-schema-registry
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
+      SCHEMA_REGISTRY_DEBUG: 'true'
+    volumes:
+      - schema_registry_data:/var/lib/schema-registry
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # NATS-Kafka Bridge
+  message-bridge:
+    build:
+      context: ./bridge
+      dockerfile: Dockerfile
+    container_name: events-platform-message-bridge
+    depends_on:
+      - nats
+      - kafka
+    environment:
+      NATS_SERVERS: nats://nats:4222
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      LOG_LEVEL: INFO
+    volumes:
+      - bridge_logs:/var/log/bridge
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio; from bridge import BridgeService; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Kafka Connect (for data pipeline integrations)
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.4.0
+    container_name: events-platform-kafka-connect
+    depends_on:
+      - kafka
+      - schema-registry
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: 'kafka:29092'
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_GROUP_ID: events-platform-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: events-platform-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: events-platform-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: events-platform-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      CONNECT_PLUGIN_PATH: '/usr/share/java,/usr/share/confluent-hub-components'
+    volumes:
+      - kafka_connect_data:/var/lib/kafka-connect
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Redis (for caching and session storage)
+  redis:
+    image: redis:7-alpine
+    container_name: events-platform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - events-network
+
+  # Monitoring Dashboard
+  monitoring-dashboard:
+    image: grafana/grafana:latest
+    container_name: events-platform-monitoring
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+    networks:
+      - events-network
+
+# Named volumes for data persistence
+volumes:
+  nats_data:
+    driver: local
+  nats_logs:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+  kafka_logs:
+    driver: local
+  kafka_connect_data:
+    driver: local
+  schema_registry_data:
+    driver: local
+  redis_data:
+    driver: local
+  bridge_logs:
+    driver: local
+  grafana_data:
+    driver: local
+
+# Network for service communication
+networks:
+  events-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

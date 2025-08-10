@@ -1,0 +1,489 @@
+# Docker Compose Production Configuration
+# Production-optimized settings with security, performance, and reliability
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # PRODUCTION DATABASE CONFIGURATIONS
+  # ==========================================================================
+  
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c max_parallel_maintenance_workers=4
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 768mb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 300
+      --timeout 300
+      --tcp-backlog 511
+      --databases 16
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  elasticsearch:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    environment:
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - xpack.security.enrollment.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ==========================================================================
+  # PRODUCTION GO SERVICES
+  # ==========================================================================
+
+  api-gateway:
+    build:
+      target: runtime  # Production optimized build
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+      PPROF_ENABLED: false
+      MAX_REQUEST_SIZE: 5MB
+      READ_TIMEOUT: 30s
+      WRITE_TIMEOUT: 30s
+      IDLE_TIMEOUT: 120s
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  user-service:
+    build:
+      target: runtime
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+      BCRYPT_COST: 14  # Higher cost for production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  event-service:
+    build:
+      target: runtime
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  search-service:
+    build:
+      target: runtime
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  websocket-gateway:
+    build:
+      target: runtime
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ==========================================================================
+  # PRODUCTION PYTHON SERVICES
+  # ==========================================================================
+
+  curation-service:
+    build:
+      target: production  # Use production stage
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+      WORKERS: 4
+      WORKER_CLASS: uvicorn.workers.UvicornWorker
+      MAX_REQUESTS: 1000
+      MAX_REQUESTS_JITTER: 100
+      PRELOAD_APP: true
+    command: >
+      gunicorn main:app
+      --workers 4
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8091
+      --max-requests 1000
+      --max-requests-jitter 100
+      --preload
+      --timeout 60
+      --keep-alive 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  recommendation-engine:
+    build:
+      target: production
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+      WORKERS: 4
+    command: >
+      gunicorn main:app
+      --workers 4
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8092
+      --max-requests 1000
+      --max-requests-jitter 100
+      --preload
+      --timeout 60
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  analytics-service:
+    build:
+      target: production
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1.5G
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: warn
+      DEBUG: false
+      WORKERS: 4
+    command: >
+      gunicorn main:app
+      --workers 4
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8093
+      --max-requests 500
+      --max-requests-jitter 50
+      --preload
+      --timeout 120
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ==========================================================================
+  # PRODUCTION MESSAGE QUEUE CONFIGURATIONS
+  # ==========================================================================
+
+  nats:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    command: >
+      --port 4222
+      --http_port 8222
+      --config /etc/nats/nats-server.conf
+      --js
+      --store_dir /data
+      --max_memory 512MB
+      --max_file_store 2GB
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  kafka:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    environment:
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824  # 1GB
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_COMPRESSION_TYPE: snappy
+      KAFKA_LOG_CLEANUP_POLICY: delete
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ==========================================================================
+  # PRODUCTION LOAD BALANCER
+  # ==========================================================================
+
+  nginx:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+    volumes:
+      - ../../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /etc/ssl/private:/etc/ssl/private:ro
+      - nginx-logs:/var/log/nginx
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+# ==========================================================================
+# PRODUCTION SECRETS
+# ==========================================================================
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  elastic_password:
+    file: ./secrets/elastic_password.txt
+
+# ==========================================================================
+# PRODUCTION VOLUMES
+# ==========================================================================
+volumes:
+  nginx-logs:
+    driver: local
+
+# ==========================================================================
+# PRODUCTION EXTERNAL NETWORKS
+# ==========================================================================
+networks:
+  events-platform-network:
+    external: true
+    name: events-platform-production
+
+# ==========================================================================
+# PRODUCTION CONFIGURATION NOTES
+# ==========================================================================
+# 
+# 1. Resource Limits: All services have CPU and memory limits to prevent
+#    resource exhaustion and ensure predictable performance.
+#
+# 2. Health Checks: Enhanced health checks with longer start periods for
+#    production stability.
+#
+# 3. Logging: Structured logging with rotation to prevent disk space issues.
+#
+# 4. Security: Secrets management, non-root users, and security-hardened
+#    configurations.
+#
+# 5. Scaling: Multiple replicas for high availability and load distribution.
+#
+# 6. Performance: Optimized JVM settings, connection pooling, and caching
+#    configurations.
+#
+# 7. Monitoring: Enhanced metrics collection and observability.
+#
+# 8. Backup: Volume mounts for persistent data with backup strategies.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.production.yml up -d

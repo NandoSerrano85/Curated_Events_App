@@ -1,0 +1,245 @@
+# Docker Compose Override for Development Environment
+# This file extends docker-compose.yml with development-specific settings
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # DEVELOPMENT OVERRIDES FOR GO SERVICES
+  # ==========================================================================
+  
+  api-gateway:
+    build:
+      target: development  # Use development stage instead of runtime
+    volumes:
+      - ../../services/go/api-gateway:/app:cached
+      - ../../go.mod:/app/go.mod:ro
+      - ../../go.sum:/app/go.sum:ro
+    environment:
+      - DEBUG=true
+      - HOT_RELOAD=true
+      - PPROF_ENABLED=true
+    ports:
+      - "6060:6060"  # pprof debugging port
+
+  user-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/go/user-service:/app:cached
+      - ../../go.mod:/app/go.mod:ro
+      - ../../go.sum:/app/go.sum:ro
+    environment:
+      - DEBUG=true
+      - HOT_RELOAD=true
+      - PPROF_ENABLED=true
+    ports:
+      - "6061:6060"  # pprof debugging port
+
+  event-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/go/event-service:/app:cached
+      - ../../go.mod:/app/go.mod:ro
+      - ../../go.sum:/app/go.sum:ro
+    environment:
+      - DEBUG=true
+      - HOT_RELOAD=true
+      - PPROF_ENABLED=true
+    ports:
+      - "6062:6060"  # pprof debugging port
+
+  search-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/go/search-service:/app:cached
+      - ../../go.mod:/app/go.mod:ro
+      - ../../go.sum:/app/go.sum:ro
+    environment:
+      - DEBUG=true
+      - HOT_RELOAD=true
+      - PPROF_ENABLED=true
+    ports:
+      - "6063:6060"  # pprof debugging port
+
+  websocket-gateway:
+    build:
+      target: development
+    volumes:
+      - ../../services/go/websocket-gateway:/app:cached
+      - ../../go.mod:/app/go.mod:ro
+      - ../../go.sum:/app/go.sum:ro
+    environment:
+      - DEBUG=true
+      - HOT_RELOAD=true
+      - PPROF_ENABLED=true
+    ports:
+      - "6064:6060"  # pprof debugging port
+
+  # ==========================================================================
+  # DEVELOPMENT OVERRIDES FOR PYTHON SERVICES
+  # ==========================================================================
+
+  curation-service:
+    build:
+      target: development  # Use development stage with debugging tools
+    volumes:
+      - ../../services/python/curation-service:/app:cached
+      - ../../services/python/shared:/app/shared:ro
+    environment:
+      - DEBUG=true
+      - PYTHONPATH=/app:/app/shared
+      - JUPYTER_ENABLED=true
+    ports:
+      - "8891:8888"  # Jupyter notebook port
+      - "5678:5678"  # Python debugger port
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8091", "--reload", "--log-level", "debug"]
+
+  recommendation-engine:
+    build:
+      target: development
+    volumes:
+      - ../../services/python/recommendation-engine:/app:cached
+      - ../../services/python/shared:/app/shared:ro
+    environment:
+      - DEBUG=true
+      - PYTHONPATH=/app:/app/shared
+      - JUPYTER_ENABLED=true
+    ports:
+      - "8892:8888"  # Jupyter notebook port
+      - "5679:5678"  # Python debugger port
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8092", "--reload", "--log-level", "debug"]
+
+  analytics-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/python/analytics-service:/app:cached
+      - ../../services/python/shared:/app/shared:ro
+    environment:
+      - DEBUG=true
+      - PYTHONPATH=/app:/app/shared
+      - JUPYTER_ENABLED=true
+    ports:
+      - "8893:8888"  # Jupyter notebook port
+      - "5680:5678"  # Python debugger port
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8093", "--reload", "--log-level", "debug"]
+
+  message-bridge:
+    build:
+      target: development
+    volumes:
+      - ../../messaging/bridge:/app:cached
+    environment:
+      - DEBUG=true
+      - PYTHONPATH=/app
+    ports:
+      - "5681:5678"  # Python debugger port
+
+  # ==========================================================================
+  # DEVELOPMENT TOOLS AND UTILITIES
+  # ==========================================================================
+
+  # pgAdmin - PostgreSQL Web Interface
+  pgadmin:
+    image: dpage/pgadmin4:7.5
+    container_name: events-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@events-platform.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    ports:
+      - "8090:80"
+    networks:
+      - events-platform-network
+    depends_on:
+      - postgres
+    labels:
+      - "com.events-platform.service=pgadmin"
+      - "com.events-platform.tier=development"
+
+  # Redis Commander - Redis Web Interface
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: events-redis-commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:redis123
+    ports:
+      - "8094:8081"
+    networks:
+      - events-platform-network
+    depends_on:
+      - redis
+    labels:
+      - "com.events-platform.service=redis-commander"
+      - "com.events-platform.tier=development"
+
+  # Elasticsearch Head - Elasticsearch Web Interface
+  elasticsearch-head:
+    image: mobz/elasticsearch-head:5
+    container_name: events-elasticsearch-head
+    restart: unless-stopped
+    ports:
+      - "8096:9100"
+    networks:
+      - events-platform-network
+    depends_on:
+      - elasticsearch
+    labels:
+      - "com.events-platform.service=elasticsearch-head"
+      - "com.events-platform.tier=development"
+
+  # Kafka UI - Kafka Management Interface
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: events-kafka-ui
+    restart: unless-stopped
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8089:8080"
+    networks:
+      - events-platform-network
+    depends_on:
+      - kafka
+    labels:
+      - "com.events-platform.service=kafka-ui"
+      - "com.events-platform.tier=development"
+
+  # Mailhog - Email Testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: events-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - events-platform-network
+    labels:
+      - "com.events-platform.service=mailhog"
+      - "com.events-platform.tier=development"
+
+  # ==========================================================================
+  # DEVELOPMENT DATABASE VOLUMES
+  # ==========================================================================
+
+volumes:
+  pgadmin-data:
+    driver: local
+
+# ==========================================================================
+# DEVELOPMENT ENVIRONMENT OVERRIDES
+# ==========================================================================
+
+# Note: Environment variables can also be overridden here
+# but it's better to use .env.development file for that purpose

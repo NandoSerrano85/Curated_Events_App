@@ -1,0 +1,301 @@
+# Alertmanager configuration for Events Platform
+# Handles alert routing, grouping, silencing, and notifications
+
+global:
+  # SMTP configuration for email notifications
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@events-platform.com'
+  smtp_require_tls: true
+
+# Inhibition rules allow to mute a set of alerts given that another alert is firing
+inhibit_rules:
+  # Mute any warning-level notifications if the same alert is already critical
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'service', 'instance']
+
+  # If entire service is down, don't alert on individual instance issues
+  - source_matchers:
+      - alertname="ServiceDown"
+    target_matchers:
+      - alertname=~"High.*|Critical.*"
+    equal: ['service']
+
+  # If database is down, don't alert on related connection issues
+  - source_matchers:
+      - alertname=~"PostgreSQLDown|RedisDown"
+    target_matchers:
+      - alertname=~".*Connection.*|.*Query.*"
+    equal: ['instance']
+
+# Routing tree configuration
+route:
+  # Root route - all alerts start here
+  group_by: ['alertname', 'service', 'tier']
+  group_wait: 30s        # Wait before sending initial notification
+  group_interval: 5m     # Wait before sending notifications about new alerts added to group
+  repeat_interval: 12h   # Wait before sending notification again if alert is still firing
+  receiver: 'default'    # Default receiver if no specific route matches
+
+  # Sub-routes for different alert types
+  routes:
+    # Critical alerts - immediate notification
+    - matchers:
+        - severity="critical"
+      group_wait: 10s
+      group_interval: 2m
+      repeat_interval: 5m
+      receiver: 'critical-alerts'
+
+    # Database alerts
+    - matchers:
+        - category="database"
+      group_by: ['alertname', 'instance']
+      receiver: 'database-team'
+
+    # Infrastructure alerts
+    - matchers:
+        - category="resources"
+      group_by: ['alertname', 'instance']
+      receiver: 'infrastructure-team'
+
+    # Application performance alerts
+    - matchers:
+        - category="performance"
+      group_by: ['alertname', 'service']
+      receiver: 'development-team'
+
+    # Business metrics alerts
+    - matchers:
+        - category="business"
+      group_by: ['alertname']
+      receiver: 'business-team'
+
+    # ML/Analytics alerts
+    - matchers:
+        - service=~".*curation.*|.*recommendation.*|.*analytics.*"
+      receiver: 'ml-team'
+
+    # Messaging system alerts
+    - matchers:
+        - category="messaging"
+      receiver: 'infrastructure-team'
+
+    # WebSocket alerts
+    - matchers:
+        - category="websocket"
+      receiver: 'realtime-team'
+
+    # Info level alerts (low priority)
+    - matchers:
+        - severity="info"
+      repeat_interval: 24h
+      receiver: 'info-alerts'
+
+# Receiver configurations
+receivers:
+  # Default receiver for unmatched alerts
+  - name: 'default'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#alerts-general'
+      username: 'EventsPlatform-Alerts'
+      icon_emoji: ':warning:'
+      title: 'Events Platform Alert'
+      text: |
+        {{ range .Alerts }}
+        *Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Severity:* {{ .Labels.severity }}
+        *Service:* {{ .Labels.service }}
+        {{ end }}
+
+  # Critical alerts - multiple notification channels
+  - name: 'critical-alerts'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#alerts-critical'
+      username: 'EventsPlatform-Critical'
+      icon_emoji: ':rotating_light:'
+      title: '🚨 CRITICAL ALERT - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *CRITICAL ALERT:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Service:* {{ .Labels.service }}
+        *Instance:* {{ .Labels.instance }}
+        *Runbook:* {{ .Annotations.runbook }}
+        {{ end }}
+      actions:
+      - type: button
+        text: 'View in Grafana'
+        url: 'http://grafana:3000/d/service-overview'
+      - type: button
+        text: 'View in Prometheus'
+        url: 'http://prometheus:9090'
+    email_configs:
+    - to: 'oncall-team@events-platform.com'
+      subject: '🚨 CRITICAL: {{ .GroupLabels.service }} - {{ .GroupLabels.alertname }}'
+      body: |
+        Critical alert fired for Events Platform:
+        
+        {{ range .Alerts }}
+        Alert: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Service: {{ .Labels.service }}
+        Instance: {{ .Labels.instance }}
+        Severity: {{ .Labels.severity }}
+        
+        Runbook: {{ .Annotations.runbook }}
+        {{ end }}
+    pagerduty_configs:
+    - routing_key: 'YOUR_PAGERDUTY_INTEGRATION_KEY'
+      description: '{{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+      severity: 'critical'
+
+  # Database team alerts
+  - name: 'database-team'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#database-alerts'
+      username: 'Database-Monitor'
+      icon_emoji: ':database:'
+      title: 'Database Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *Database Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Instance:* {{ .Labels.instance }}
+        *Severity:* {{ .Labels.severity }}
+        {{ end }}
+    email_configs:
+    - to: 'database-team@events-platform.com'
+      subject: 'DB Alert: {{ .GroupLabels.alertname }}'
+
+  # Infrastructure team alerts
+  - name: 'infrastructure-team'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#infrastructure-alerts'
+      username: 'Infra-Monitor'
+      icon_emoji: ':gear:'
+      title: 'Infrastructure Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *Infrastructure Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Instance:* {{ .Labels.instance }}
+        *Severity:* {{ .Labels.severity }}
+        {{ end }}
+
+  # Development team alerts
+  - name: 'development-team'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#dev-alerts'
+      username: 'Dev-Monitor'
+      icon_emoji: ':computer:'
+      title: 'Application Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *Application Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Service:* {{ .Labels.service }}
+        *Severity:* {{ .Labels.severity }}
+        {{ end }}
+
+  # Business team alerts
+  - name: 'business-team'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#business-alerts'
+      username: 'Business-Monitor'
+      icon_emoji: ':chart_with_upwards_trend:'
+      title: 'Business Metrics Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *Business Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Severity:* {{ .Labels.severity }}
+        {{ end }}
+    email_configs:
+    - to: 'business-team@events-platform.com'
+      subject: 'Business Metrics Alert: {{ .GroupLabels.alertname }}'
+
+  # ML team alerts
+  - name: 'ml-team'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#ml-alerts'
+      username: 'ML-Monitor'
+      icon_emoji: ':robot_face:'
+      title: 'ML/Analytics Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *ML Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Service:* {{ .Labels.service }}
+        *Severity:* {{ .Labels.severity }}
+        {{ end }}
+
+  # Real-time team alerts
+  - name: 'realtime-team'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#realtime-alerts'
+      username: 'Realtime-Monitor'
+      icon_emoji: ':zap:'
+      title: 'Real-time Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *Real-time Alert:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Service:* {{ .Labels.service }}
+        *Severity:* {{ .Labels.severity }}
+        {{ end }}
+
+  # Info level alerts
+  - name: 'info-alerts'
+    slack_configs:
+    - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+      channel: '#alerts-info'
+      username: 'Info-Monitor'
+      icon_emoji: ':information_source:'
+      title: 'Info Alert - Events Platform'
+      text: |
+        {{ range .Alerts }}
+        *Info:* {{ .Annotations.summary }}
+        *Description:* {{ .Annotations.description }}
+        *Service:* {{ .Labels.service }}
+        {{ end }}
+
+# Template definitions for reusable message formats
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Time intervals for grouping and notification delays
+time_intervals:
+  # Business hours (9 AM to 6 PM, Mon-Fri)
+  - name: business-hours
+    time_intervals:
+    - times:
+      - start_time: '09:00'
+        end_time: '18:00'
+      weekdays: ['monday:friday']
+    
+  # Weekend maintenance window
+  - name: weekend-maintenance
+    time_intervals:
+    - times:
+      - start_time: '02:00'
+        end_time: '06:00'
+      weekdays: ['saturday', 'sunday']
+
+# Mute rules for scheduled maintenance
+mute_time_intervals:
+  # Maintenance window alerts
+  - name: weekend-maintenance-mute
+    time_intervals:
+    - weekend-maintenance

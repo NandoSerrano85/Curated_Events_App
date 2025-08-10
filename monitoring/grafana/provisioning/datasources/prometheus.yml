@@ -1,0 +1,126 @@
+# Grafana datasource configuration for Prometheus
+# This configures Prometheus as the primary data source for all dashboards
+
+apiVersion: 1
+
+# Datasource definitions
+datasources:
+  # Primary Prometheus datasource
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    
+    # Basic auth configuration (if needed)
+    # basicAuth: false
+    # basicAuthUser: admin
+    # basicAuthPassword: admin
+    
+    # Additional settings
+    editable: false
+    jsonData:
+      httpMethod: POST
+      queryTimeout: 60s
+      timeInterval: 30s
+      
+      # Enable query caching for better performance
+      queryLogEnabled: true
+      
+      # Prometheus specific settings
+      prometheusType: Prometheus
+      prometheusVersion: 2.45.0
+      
+      # Custom query parameters
+      customQueryParameters: ''
+      
+      # Disable metrics lookup for better performance
+      disableMetricsLookup: false
+      
+      # Enable exemplars support
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger
+          urlDisplayLabel: View trace
+      
+    # Security settings
+    secureJsonFields: {}
+    
+    # Provisioning metadata
+    version: 1
+    uid: prometheus-uid
+    
+  # Optional: Additional Prometheus instance for long-term storage
+  - name: Prometheus-LongTerm
+    type: prometheus
+    access: proxy
+    url: http://prometheus-long-term:9090
+    isDefault: false
+    
+    editable: false
+    jsonData:
+      httpMethod: POST
+      queryTimeout: 120s
+      timeInterval: 60s
+      prometheusType: Prometheus
+      prometheusVersion: 2.45.0
+      
+    version: 1
+    uid: prometheus-long-term-uid
+    
+  # Optional: Alertmanager datasource for alert management
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    isDefault: false
+    
+    editable: false
+    jsonData:
+      implementation: prometheus
+      
+    version: 1
+    uid: alertmanager-uid
+
+  # Optional: Loki for log aggregation (if implemented)
+  # - name: Loki
+  #   type: loki
+  #   access: proxy
+  #   url: http://loki:3100
+  #   isDefault: false
+  #   
+  #   editable: false
+  #   jsonData:
+  #     maxLines: 1000
+  #     
+  #   version: 1
+  #   uid: loki-uid
+
+  # Optional: Jaeger for distributed tracing (if implemented)
+  # - name: Jaeger
+  #   type: jaeger
+  #   access: proxy
+  #   url: http://jaeger:16686
+  #   isDefault: false
+  #   
+  #   editable: false
+  #   jsonData:
+  #     tracesToLogs:
+  #       datasourceUid: loki-uid
+  #       tags: ['job', 'instance', 'pod', 'namespace']
+  #       mappedTags: [{ key: 'service.name', value: 'service' }]
+  #       mapTagNamesEnabled: false
+  #       spanStartTimeShift: 1h
+  #       spanEndTimeShift: 1h
+  #       filterByTraceID: false
+  #       filterBySpanID: false
+  #     
+  #   version: 1
+  #   uid: jaeger-uid
+
+deleteDatasources:
+  # Clean up any existing datasources with these names on startup
+  - name: Prometheus
+    orgId: 1
+  - name: Alertmanager  
+    orgId: 1

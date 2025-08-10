@@ -1,0 +1,624 @@
+# Complete Docker Compose for Events Platform
+# Hybrid Go/Python microservices architecture with full infrastructure
+
+version: '3.8'
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  events-platform-network:
+    driver: bridge
+    name: events-platform-network
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+  
+  events-monitoring:
+    external: true
+    name: events-monitoring
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  nats-data:
+    driver: local
+  kafka-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+
+# ============================================================================
+# SERVICES
+# ============================================================================
+services:
+  # ==========================================================================
+  # DATABASE SERVICES
+  # ==========================================================================
+  
+  # PostgreSQL - Primary Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: events-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: events_platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../database/schemas/postgresql:/docker-entrypoint-initdb.d:ro
+      - ../../database/migrations:/migrations:ro
+    ports:
+      - "5432:5432"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d events_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "com.events-platform.service=postgres"
+      - "com.events-platform.tier=database"
+
+  # Redis - Cache and Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: events-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.11
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    labels:
+      - "com.events-platform.service=redis"
+      - "com.events-platform.tier=cache"
+
+  # Elasticsearch - Search Engine
+  elasticsearch:
+    image: elasticsearch:8.8.0
+    container_name: events-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.12
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.events-platform.service=elasticsearch"
+      - "com.events-platform.tier=search"
+
+  # ==========================================================================
+  # MESSAGE QUEUE SERVICES
+  # ==========================================================================
+
+  # NATS - Go Services Messaging
+  nats:
+    image: nats:2.9-alpine
+    container_name: events-nats
+    restart: unless-stopped
+    command: >
+      --port 4222
+      --http_port 8222
+      --config /etc/nats/nats-server.conf
+      --js
+    volumes:
+      - ../../messaging/nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - nats-data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.20
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/varz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=nats"
+      - "com.events-platform.tier=messaging"
+
+  # Zookeeper - Kafka Dependency
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: events-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - /var/lib/zookeeper/log
+    ports:
+      - "2181:2181"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.21
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=zookeeper"
+      - "com.events-platform.tier=messaging"
+
+  # Kafka - Python Services Messaging
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: events-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "9101:9101"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.22
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.events-platform.service=kafka"
+      - "com.events-platform.tier=messaging"
+
+  # Message Bridge - NATS <-> Kafka
+  message-bridge:
+    build:
+      context: ../../
+      dockerfile: docker/services/python-services.dockerfile
+      target: runtime
+      args:
+        SERVICE_NAME: bridge
+        SERVICE_PORT: 8095
+    container_name: events-message-bridge
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      NATS_URL: nats://nats:4222
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      LOG_LEVEL: info
+    working_dir: /app/messaging/bridge
+    command: ["python", "bridge.py"]
+    ports:
+      - "8095:8095"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.1.25
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.events-platform.service=message-bridge"
+      - "com.events-platform.tier=messaging"
+
+  # ==========================================================================
+  # GO SERVICES
+  # ==========================================================================
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ../../
+      dockerfile: docker/services/go-services.dockerfile
+      target: runtime
+      args:
+        SERVICE_NAME: api-gateway
+    container_name: events-api-gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/events_platform?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8080:8080"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.2.10
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=api-gateway"
+      - "com.events-platform.tier=gateway"
+      - "com.events-platform.language=go"
+
+  # User Service
+  user-service:
+    build:
+      context: ../../
+      dockerfile: docker/services/go-services.dockerfile
+      target: runtime
+      args:
+        SERVICE_NAME: user-service
+    container_name: events-user-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    environment:
+      PORT: 8081
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/events_platform?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      BCRYPT_COST: ${BCRYPT_COST:-12}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8081:8081"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.2.11
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=user-service"
+      - "com.events-platform.tier=core"
+      - "com.events-platform.language=go"
+
+  # Event Service
+  event-service:
+    build:
+      context: ../../
+      dockerfile: docker/services/go-services.dockerfile
+      target: runtime
+      args:
+        SERVICE_NAME: event-service
+    container_name: events-event-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      PORT: 8082
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/events_platform?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      NATS_URL: nats://nats:4222
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8082:8082"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.2.12
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=event-service"
+      - "com.events-platform.tier=core"
+      - "com.events-platform.language=go"
+
+  # Search Service
+  search-service:
+    build:
+      context: ../../
+      dockerfile: docker/services/go-services.dockerfile
+      target: runtime
+      args:
+        SERVICE_NAME: search-service
+    container_name: events-search-service
+    restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    environment:
+      PORT: 8083
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      NATS_URL: nats://nats:4222
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8083:8083"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.2.13
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=search-service"
+      - "com.events-platform.tier=core"
+      - "com.events-platform.language=go"
+
+  # WebSocket Gateway
+  websocket-gateway:
+    build:
+      context: ../../
+      dockerfile: docker/services/go-services.dockerfile
+      target: runtime
+      args:
+        SERVICE_NAME: websocket-gateway
+    container_name: events-websocket-gateway
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    environment:
+      PORT: 8084
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8084:8084"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.2.14
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=websocket-gateway"
+      - "com.events-platform.tier=gateway"
+      - "com.events-platform.language=go"
+
+  # ==========================================================================
+  # PYTHON SERVICES
+  # ==========================================================================
+
+  # Curation Service
+  curation-service:
+    build:
+      context: ../../
+      dockerfile: docker/services/python-services.dockerfile
+      target: production
+      args:
+        SERVICE_NAME: curation-service
+        SERVICE_PORT: 8091
+    container_name: events-curation-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      PORT: 8091
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/events_platform
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MODEL_PATH: /app/models
+      DATA_PATH: /app/data
+    working_dir: /app/services/python/curation-service
+    ports:
+      - "8091:8091"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.3.11
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.events-platform.service=curation-service"
+      - "com.events-platform.tier=ml"
+      - "com.events-platform.language=python"
+
+  # Recommendation Engine
+  recommendation-engine:
+    build:
+      context: ../../
+      dockerfile: docker/services/python-services.dockerfile
+      target: production
+      args:
+        SERVICE_NAME: recommendation-engine
+        SERVICE_PORT: 8092
+    container_name: events-recommendation-engine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      PORT: 8092
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/events_platform
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MODEL_PATH: /app/models
+      DATA_PATH: /app/data
+    working_dir: /app/services/python/recommendation-engine
+    ports:
+      - "8092:8092"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.3.12
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.events-platform.service=recommendation-engine"
+      - "com.events-platform.tier=ml"
+      - "com.events-platform.language=python"
+
+  # Analytics Service
+  analytics-service:
+    build:
+      context: ../../
+      dockerfile: docker/services/python-services.dockerfile
+      target: production
+      args:
+        SERVICE_NAME: analytics-service
+        SERVICE_PORT: 8093
+    container_name: events-analytics-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      PORT: 8093
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/events_platform
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MODEL_PATH: /app/models
+      DATA_PATH: /app/data
+    working_dir: /app/services/python/analytics-service
+    ports:
+      - "8093:8093"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.3.13
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8093/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.events-platform.service=analytics-service"
+      - "com.events-platform.tier=analytics"
+      - "com.events-platform.language=python"
+
+  # ==========================================================================
+  # EXTERNAL INTEGRATIONS (Optional)
+  # ==========================================================================
+
+  # Nginx - Load Balancer & Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: events-nginx
+    restart: unless-stopped
+    depends_on:
+      - api-gateway
+    volumes:
+      - ../../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /var/log/nginx:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      events-platform-network:
+        ipv4_address: 172.20.4.10
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.events-platform.service=nginx"
+      - "com.events-platform.tier=proxy"

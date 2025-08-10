@@ -1,0 +1,344 @@
+# Docker Compose for Events Platform Monitoring Stack
+# Includes Prometheus, Grafana, Alertmanager, and supporting exporters
+
+version: '3.8'
+
+networks:
+  monitoring:
+    driver: bridge
+    name: events-monitoring
+  events-network:
+    external: true
+    name: events-platform-network
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+
+services:
+  # ============================================================================
+  # PROMETHEUS - Metrics Collection and Storage
+  # ============================================================================
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: events-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - ./prometheus/recording_rules.yml:/etc/prometheus/recording_rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.external-url=http://localhost:9090'
+      - '--web.enable-admin-api'
+      - '--log.level=info'
+    networks:
+      - monitoring
+      - events-network
+    labels:
+      - "com.events-platform.service=prometheus"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # GRAFANA - Visualization and Dashboards
+  # ============================================================================
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: events-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      # Admin credentials
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      
+      # Server settings
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+      
+      # Database settings (SQLite by default)
+      - GF_DATABASE_TYPE=sqlite3
+      - GF_DATABASE_PATH=/var/lib/grafana/grafana.db
+      
+      # Session settings
+      - GF_SESSION_PROVIDER=file
+      - GF_SESSION_PROVIDER_CONFIG=sessions
+      
+      # Analytics and telemetry
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      
+      # Feature toggles
+      - GF_FEATURE_TOGGLES_ENABLE=ngalert
+      
+      # Provisioning
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      
+      # Plugins
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel
+      
+      # Alerting (if using new unified alerting)
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - GF_ALERTING_ENABLED=false
+      
+      # SMTP settings (for email notifications)
+      - GF_SMTP_ENABLED=false
+      - GF_SMTP_HOST=localhost:587
+      - GF_SMTP_USER=
+      - GF_SMTP_PASSWORD=
+      - GF_SMTP_FROM_ADDRESS=grafana@events-platform.com
+      - GF_SMTP_FROM_NAME=Events Platform Grafana
+      
+      # Security settings
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_SECURITY_COOKIE_SAMESITE=lax
+      - GF_SECURITY_ALLOW_EMBEDDING=false
+      
+      # Users and organizations
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_USERS_AUTO_ASSIGN_ORG=true
+      - GF_USERS_AUTO_ASSIGN_ORG_ROLE=Viewer
+      
+      # Anonymous access
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    labels:
+      - "com.events-platform.service=grafana"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # ALERTMANAGER - Alert Management and Routing
+  # ============================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    container_name: events-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+      - '--web.route-prefix=/'
+      - '--cluster.listen-address=0.0.0.0:9094'
+      - '--log.level=info'
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    labels:
+      - "com.events-platform.service=alertmanager"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # NODE EXPORTER - System Metrics
+  # ============================================================================
+  node-exporter:
+    image: prom/node-exporter:v1.6.0
+    container_name: events-node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.netdev.device-exclude=^(veth.*|docker.*|br-.*|lo)$$'
+      - '--collector.diskstats.ignored-devices=^(ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\\d+n\\d+p)\\d+$$'
+    networks:
+      - monitoring
+    labels:
+      - "com.events-platform.service=node-exporter"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9100/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # CADVISOR - Container Metrics
+  # ============================================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: events-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - monitoring
+    labels:
+      - "com.events-platform.service=cadvisor"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # BLACKBOX EXPORTER - Endpoint Monitoring
+  # ============================================================================
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: events-blackbox-exporter
+    restart: unless-stopped
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox/blackbox.yml:/config/blackbox.yml:ro
+    command:
+      - '--config.file=/config/blackbox.yml'
+      - '--web.listen-address=:9115'
+    networks:
+      - monitoring
+      - events-network
+    labels:
+      - "com.events-platform.service=blackbox-exporter"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9115/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # DATABASE EXPORTERS
+  # ============================================================================
+  
+  # PostgreSQL Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.13.2
+    container_name: events-postgres-exporter
+    restart: unless-stopped
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:password@postgres:5432/events_platform?sslmode=disable
+      - PG_EXPORTER_EXTEND_QUERY_PATH=/etc/postgres_exporter/queries.yaml
+    volumes:
+      - ./exporters/postgres/queries.yaml:/etc/postgres_exporter/queries.yaml:ro
+    networks:
+      - monitoring
+      - events-network
+    depends_on:
+      - prometheus
+    labels:
+      - "com.events-platform.service=postgres-exporter"
+      - "com.events-platform.tier=monitoring"
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.52.0
+    container_name: events-redis-exporter
+    restart: unless-stopped
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_PASSWORD=
+    networks:
+      - monitoring
+      - events-network
+    depends_on:
+      - prometheus
+    labels:
+      - "com.events-platform.service=redis-exporter"
+      - "com.events-platform.tier=monitoring"
+
+  # Elasticsearch Exporter
+  elasticsearch-exporter:
+    image: prometheuscommunity/elasticsearch-exporter:v1.6.0
+    container_name: events-elasticsearch-exporter
+    restart: unless-stopped
+    ports:
+      - "9114:9114"
+    command:
+      - '--es.uri=http://elasticsearch:9200'
+      - '--es.all'
+      - '--es.indices'
+      - '--es.cluster_settings'
+      - '--es.snapshots'
+    networks:
+      - monitoring
+      - events-network
+    depends_on:
+      - prometheus
+    labels:
+      - "com.events-platform.service=elasticsearch-exporter"
+      - "com.events-platform.tier=monitoring"
+
+  # ============================================================================
+  # PUSHGATEWAY - Batch Job Metrics
+  # ============================================================================
+  pushgateway:
+    image: prom/pushgateway:v1.6.0
+    container_name: events-pushgateway
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    networks:
+      - monitoring
+    labels:
+      - "com.events-platform.service=pushgateway"
+      - "com.events-platform.tier=monitoring"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

@@ -1,0 +1,450 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 1,
+    "index": {
+      "max_result_window": 50000
+    },
+    "analysis": {
+      "analyzer": {
+        "event_title_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "stop",
+            "asciifolding",
+            "synonym_filter",
+            "stemmer"
+          ]
+        },
+        "event_description_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "stop",
+            "asciifolding",
+            "stemmer"
+          ]
+        },
+        "autocomplete_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "autocomplete_filter"
+          ]
+        },
+        "search_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      },
+      "filter": {
+        "synonym_filter": {
+          "type": "synonym",
+          "synonyms": [
+            "conference,summit,convention",
+            "workshop,training,class,course",
+            "meetup,networking,social",
+            "webinar,online,virtual",
+            "tech,technology,technical",
+            "ai,artificial intelligence,machine learning,ml",
+            "startup,entrepreneur,business"
+          ]
+        },
+        "stemmer": {
+          "type": "stemmer",
+          "language": "english"
+        },
+        "autocomplete_filter": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "id": {
+        "type": "keyword"
+      },
+      "title": {
+        "type": "text",
+        "analyzer": "event_title_analyzer",
+        "search_analyzer": "event_title_analyzer",
+        "fields": {
+          "raw": {
+            "type": "keyword"
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "search_analyzer"
+          },
+          "suggest": {
+            "type": "completion",
+            "contexts": [
+              {
+                "name": "category",
+                "type": "category"
+              }
+            ]
+          }
+        },
+        "boost": 3.0
+      },
+      "slug": {
+        "type": "keyword"
+      },
+      "short_description": {
+        "type": "text",
+        "analyzer": "event_description_analyzer",
+        "boost": 2.0
+      },
+      "long_description": {
+        "type": "text",
+        "analyzer": "event_description_analyzer",
+        "boost": 1.5
+      },
+      "organizer": {
+        "properties": {
+          "id": {
+            "type": "keyword"
+          },
+          "name": {
+            "type": "text",
+            "analyzer": "standard",
+            "fields": {
+              "raw": {
+                "type": "keyword"
+              },
+              "autocomplete": {
+                "type": "text",
+                "analyzer": "autocomplete_analyzer",
+                "search_analyzer": "search_analyzer"
+              }
+            }
+          },
+          "email": {
+            "type": "keyword"
+          },
+          "rating": {
+            "type": "float"
+          },
+          "event_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "category": {
+        "properties": {
+          "id": {
+            "type": "keyword"
+          },
+          "name": {
+            "type": "keyword"
+          },
+          "slug": {
+            "type": "keyword"
+          },
+          "parent_id": {
+            "type": "keyword"
+          }
+        }
+      },
+      "tags": {
+        "type": "keyword",
+        "fields": {
+          "text": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "status": {
+        "type": "keyword"
+      },
+      "visibility": {
+        "type": "keyword"
+      },
+      "is_virtual": {
+        "type": "boolean"
+      },
+      "is_free": {
+        "type": "boolean"
+      },
+      "start_time": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "end_time": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "timezone": {
+        "type": "keyword"
+      },
+      "duration_minutes": {
+        "type": "integer"
+      },
+      "venue": {
+        "properties": {
+          "name": {
+            "type": "text",
+            "analyzer": "standard",
+            "fields": {
+              "raw": {
+                "type": "keyword"
+              }
+            }
+          },
+          "address": {
+            "type": "text",
+            "analyzer": "standard"
+          },
+          "city": {
+            "type": "keyword",
+            "fields": {
+              "text": {
+                "type": "text",
+                "analyzer": "standard"
+              }
+            }
+          },
+          "state": {
+            "type": "keyword"
+          },
+          "country": {
+            "type": "keyword"
+          },
+          "postal_code": {
+            "type": "keyword"
+          },
+          "location": {
+            "type": "geo_point"
+          },
+          "full_address": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "virtual_info": {
+        "properties": {
+          "url": {
+            "type": "keyword",
+            "index": false
+          },
+          "platform": {
+            "type": "keyword"
+          },
+          "meeting_id": {
+            "type": "keyword",
+            "index": false
+          }
+        }
+      },
+      "pricing": {
+        "properties": {
+          "base_price": {
+            "type": "scaled_float",
+            "scaling_factor": 100
+          },
+          "currency": {
+            "type": "keyword"
+          },
+          "price_range": {
+            "properties": {
+              "min": {
+                "type": "scaled_float",
+                "scaling_factor": 100
+              },
+              "max": {
+                "type": "scaled_float",
+                "scaling_factor": 100
+              }
+            }
+          }
+        }
+      },
+      "capacity": {
+        "properties": {
+          "max_attendees": {
+            "type": "integer"
+          },
+          "registration_count": {
+            "type": "integer"
+          },
+          "available_spots": {
+            "type": "integer"
+          },
+          "waitlist_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "registration": {
+        "properties": {
+          "opens_at": {
+            "type": "date",
+            "format": "strict_date_time"
+          },
+          "closes_at": {
+            "type": "date",
+            "format": "strict_date_time"
+          },
+          "is_open": {
+            "type": "boolean"
+          },
+          "require_approval": {
+            "type": "boolean"
+          },
+          "allow_waitlist": {
+            "type": "boolean"
+          }
+        }
+      },
+      "metrics": {
+        "properties": {
+          "view_count": {
+            "type": "integer"
+          },
+          "registration_count": {
+            "type": "integer"
+          },
+          "favorite_count": {
+            "type": "integer"
+          },
+          "share_count": {
+            "type": "integer"
+          },
+          "average_rating": {
+            "type": "float"
+          },
+          "rating_count": {
+            "type": "integer"
+          },
+          "popularity_score": {
+            "type": "float"
+          },
+          "trending_score": {
+            "type": "float"
+          }
+        }
+      },
+      "images": {
+        "properties": {
+          "primary": {
+            "type": "keyword",
+            "index": false
+          },
+          "gallery": {
+            "type": "keyword",
+            "index": false
+          },
+          "thumbnail": {
+            "type": "keyword",
+            "index": false
+          }
+        }
+      },
+      "social": {
+        "properties": {
+          "facebook_url": {
+            "type": "keyword",
+            "index": false
+          },
+          "twitter_url": {
+            "type": "keyword",
+            "index": false
+          },
+          "linkedin_url": {
+            "type": "keyword",
+            "index": false
+          },
+          "instagram_url": {
+            "type": "keyword",
+            "index": false
+          }
+        }
+      },
+      "seo": {
+        "properties": {
+          "meta_title": {
+            "type": "text",
+            "index": false
+          },
+          "meta_description": {
+            "type": "text",
+            "index": false
+          },
+          "keywords": {
+            "type": "keyword",
+            "index": false
+          }
+        }
+      },
+      "age_restrictions": {
+        "properties": {
+          "min_age": {
+            "type": "integer"
+          },
+          "max_age": {
+            "type": "integer"
+          },
+          "age_groups": {
+            "type": "keyword"
+          }
+        }
+      },
+      "accessibility": {
+        "properties": {
+          "wheelchair_accessible": {
+            "type": "boolean"
+          },
+          "sign_language": {
+            "type": "boolean"
+          },
+          "closed_captions": {
+            "type": "boolean"
+          },
+          "features": {
+            "type": "keyword"
+          }
+        }
+      },
+      "created_at": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "published_at": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "indexed_at": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "search_keywords": {
+        "type": "text",
+        "analyzer": "event_title_analyzer",
+        "boost": 1.2
+      },
+      "boost_score": {
+        "type": "float"
+      }
+    }
+  }
+}

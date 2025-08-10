@@ -1,0 +1,297 @@
+# Prometheus configuration for Events Platform
+# Scrapes metrics from all services and infrastructure components
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'events-platform'
+    environment: 'development'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "alert_rules.yml"
+  - "recording_rules.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # ============================================================================
+  # GO SERVICES
+  # ============================================================================
+  
+  # API Gateway
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8080']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'api-gateway'
+      language: 'go'
+      tier: 'gateway'
+
+  # User Service
+  - job_name: 'user-service'
+    static_configs:
+      - targets: ['user-service:8081']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'user-service'
+      language: 'go'
+      tier: 'core'
+
+  # Event Service
+  - job_name: 'event-service'
+    static_configs:
+      - targets: ['event-service:8082']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'event-service'
+      language: 'go'
+      tier: 'core'
+
+  # Search Service
+  - job_name: 'search-service'
+    static_configs:
+      - targets: ['search-service:8083']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'search-service'
+      language: 'go'
+      tier: 'core'
+
+  # WebSocket Gateway
+  - job_name: 'websocket-gateway'
+    static_configs:
+      - targets: ['websocket-gateway:8084']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'websocket-gateway'
+      language: 'go'
+      tier: 'gateway'
+
+  # ============================================================================
+  # PYTHON SERVICES
+  # ============================================================================
+
+  # Curation Service
+  - job_name: 'curation-service'
+    static_configs:
+      - targets: ['curation-service:8091']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'curation-service'
+      language: 'python'
+      tier: 'ml'
+
+  # Recommendation Engine
+  - job_name: 'recommendation-engine'
+    static_configs:
+      - targets: ['recommendation-engine:8092']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'recommendation-engine'
+      language: 'python'
+      tier: 'ml'
+
+  # Analytics Service
+  - job_name: 'analytics-service'
+    static_configs:
+      - targets: ['analytics-service:8093']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    labels:
+      service: 'analytics-service'
+      language: 'python'
+      tier: 'analytics'
+
+  # ============================================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================================
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+    labels:
+      service: 'postgresql'
+      tier: 'database'
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+    labels:
+      service: 'redis'
+      tier: 'cache'
+
+  # Elasticsearch Exporter
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['elasticsearch-exporter:9114']
+    scrape_interval: 30s
+    labels:
+      service: 'elasticsearch'
+      tier: 'search'
+
+  # NATS Server
+  - job_name: 'nats'
+    static_configs:
+      - targets: ['nats:8222']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    labels:
+      service: 'nats'
+      tier: 'messaging'
+
+  # Kafka JMX Exporter
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka-jmx-exporter:8080']
+    scrape_interval: 30s
+    labels:
+      service: 'kafka'
+      tier: 'messaging'
+
+  # ============================================================================
+  # SYSTEM MONITORING
+  # ============================================================================
+
+  # Node Exporter (System metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+    labels:
+      tier: 'system'
+
+  # cAdvisor (Container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+    labels:
+      tier: 'container'
+
+  # Docker Engine metrics
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['docker-exporter:9323']
+    scrape_interval: 30s
+    labels:
+      tier: 'container'
+
+  # ============================================================================
+  # BLACKBOX MONITORING
+  # ============================================================================
+
+  # HTTP endpoints health check
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://api-gateway:8080/health
+        - http://user-service:8081/health
+        - http://event-service:8082/health
+        - http://search-service:8083/health
+        - http://websocket-gateway:8084/health
+        - http://curation-service:8091/health
+        - http://recommendation-engine:8092/health
+        - http://analytics-service:8093/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # TCP endpoints health check
+  - job_name: 'blackbox-tcp'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+        - postgres:5432
+        - redis:6379
+        - elasticsearch:9200
+        - nats:4222
+        - kafka:9092
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ============================================================================
+  # SERVICE DISCOVERY (for dynamic environments)
+  # ============================================================================
+
+  # Kubernetes service discovery (if deployed on K8s)
+  # - job_name: 'kubernetes-apiservers'
+  #   kubernetes_sd_configs:
+  #   - role: endpoints
+  #   scheme: https
+  #   tls_config:
+  #     ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  #   bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  #   relabel_configs:
+  #   - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+  #     action: keep
+  #     regex: default;kubernetes;https
+
+  # Consul service discovery (if using Consul)
+  # - job_name: 'consul'
+  #   consul_sd_configs:
+  #     - server: 'consul:8500'
+  #   relabel_configs:
+  #     - source_labels: [__meta_consul_tags]
+  #       regex: .*,prometheus,.*
+  #       action: keep
+
+# Remote write configuration (for long-term storage)
+# remote_write:
+#   - url: "http://cortex:9009/api/prom/push"
+#     queue_config:
+#       max_samples_per_send: 10000
+#       max_shards: 200
+#       capacity: 20000
+
+# Remote read configuration
+# remote_read:
+#   - url: "http://cortex:9009/api/prom/read"

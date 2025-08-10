@@ -1,0 +1,338 @@
+# Blackbox Exporter configuration for Events Platform
+# Defines probes for HTTP, TCP, ICMP, and DNS monitoring
+
+modules:
+  # ============================================================================
+  # HTTP PROBES
+  # ============================================================================
+  
+  # Standard HTTP 2xx probe
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 204]
+      no_follow_redirects: false
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+      tls_config:
+        insecure_skip_verify: false
+      preferred_ip_protocol: "ip4"
+      ip_protocol_fallback: true
+      body_size_limit: 1048576  # 1MB
+      compression: gzip
+
+  # HTTP probe with basic auth
+  http_2xx_basic_auth:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      basic_auth:
+        username: "monitoring"
+        password: "secret"
+
+  # HTTP probe for JSON APIs
+  http_json_api:
+    prober: http
+    timeout: 15s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      headers:
+        Accept: "application/json"
+        User-Agent: "Events-Platform-Monitor/1.0"
+      fail_if_not_matches_regexp:
+        - '"status":\s*"(ok|healthy|up)"'
+
+  # HTTP probe with POST data
+  http_post_json:
+    prober: http
+    timeout: 10s
+    http:
+      method: POST
+      headers:
+        Content-Type: "application/json"
+      body: '{"health": "check"}'
+      valid_status_codes: [200, 201]
+
+  # HTTPS probe with certificate validation
+  https_certificate:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_not_ssl: true
+      tls_config:
+        insecure_skip_verify: false
+        # Certificate validity check
+        ca_file: "/etc/ssl/certs/ca-certificates.crt"
+
+  # Health check endpoint probe
+  health_check:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      headers:
+        User-Agent: "HealthCheck/1.0"
+      fail_if_not_matches_regexp:
+        - '(healthy|ok|up|ready)'
+      fail_if_matches_regexp:
+        - '(unhealthy|error|down|maintenance)'
+
+  # Metrics endpoint probe
+  metrics_endpoint:
+    prober: http
+    timeout: 15s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      headers:
+        Accept: "text/plain"
+      fail_if_not_matches_regexp:
+        - '^# (HELP|TYPE)'
+      body_size_limit: 10485760  # 10MB for metrics
+
+  # ============================================================================
+  # TCP PROBES
+  # ============================================================================
+
+  # Generic TCP connection probe
+  tcp_connect:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: "ip4"
+      ip_protocol_fallback: true
+
+  # TCP probe with query/response
+  tcp_postgres:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: "ip4"
+      query_response:
+        - expect: "^\\x00"
+        - send: "\\x00\\x00\\x00\\x00"
+
+  # Redis TCP probe
+  tcp_redis:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      query_response:
+        - send: "PING"
+        - expect: "PONG"
+
+  # NATS TCP probe
+  tcp_nats:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      query_response:
+        - expect: "INFO"
+
+  # Kafka TCP probe
+  tcp_kafka:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: "ip4"
+
+  # ============================================================================
+  # TLS/SSL PROBES
+  # ============================================================================
+
+  # TLS certificate probe
+  tls_certificate:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      tls: true
+      tls_config:
+        insecure_skip_verify: false
+
+  # TLS with specific protocol version
+  tls_v1_3:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      tls: true
+      tls_config:
+        min_version: TLS13
+        max_version: TLS13
+
+  # ============================================================================
+  # ICMP PROBES
+  # ============================================================================
+
+  # ICMP ping probe
+  icmp:
+    prober: icmp
+    timeout: 10s
+    icmp:
+      preferred_ip_protocol: "ip4"
+      source_ip_address: "0.0.0.0"
+      payload_size: 64
+      dont_fragment: false
+
+  # ICMP IPv6 probe
+  icmp_ipv6:
+    prober: icmp
+    timeout: 10s
+    icmp:
+      preferred_ip_protocol: "ip6"
+
+  # ============================================================================
+  # DNS PROBES
+  # ============================================================================
+
+  # DNS A record lookup
+  dns_a:
+    prober: dns
+    timeout: 10s
+    dns:
+      query_name: "events-platform.com"
+      query_type: "A"
+      valid_rcodes:
+        - NOERROR
+      validate_answer_rrs:
+        fail_if_matches_regexp:
+          - ".*127\\.0\\.0\\.1.*"
+        fail_if_not_matches_regexp:
+          - ".*"
+
+  # DNS MX record lookup
+  dns_mx:
+    prober: dns
+    timeout: 10s
+    dns:
+      query_name: "events-platform.com"
+      query_type: "MX"
+      valid_rcodes:
+        - NOERROR
+
+  # DNS over specific server
+  dns_custom_server:
+    prober: dns
+    timeout: 5s
+    dns:
+      query_name: "events-platform.com"
+      query_type: "A"
+      dns_over_tls: false
+      transport_protocol: "udp"
+      preferred_ip_protocol: "ip4"
+      valid_rcodes:
+        - NOERROR
+
+  # ============================================================================
+  # CUSTOM APPLICATION PROBES
+  # ============================================================================
+
+  # WebSocket probe (using HTTP upgrade)
+  websocket_health:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      headers:
+        Connection: "Upgrade"
+        Upgrade: "websocket"
+        Sec-WebSocket-Key: "test"
+        Sec-WebSocket-Version: "13"
+      valid_status_codes: [101, 200]
+
+  # Elasticsearch cluster health
+  elasticsearch_health:
+    prober: http
+    timeout: 15s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_not_matches_regexp:
+        - '"status":\s*"(green|yellow)"'
+      headers:
+        Content-Type: "application/json"
+
+  # NATS server info endpoint
+  nats_info:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      headers:
+        Accept: "application/json"
+      fail_if_not_matches_regexp:
+        - '"server_id":'
+        - '"server_name":"nats-server"'
+
+  # Grafana API health
+  grafana_api:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      headers:
+        Accept: "application/json"
+      fail_if_not_matches_regexp:
+        - '"database":\s*"ok"'
+
+  # Prometheus ready check
+  prometheus_ready:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp:
+        - "Prometheus is Ready"
+
+  # ============================================================================
+  # PERFORMANCE PROBES
+  # ============================================================================
+
+  # Fast response time probe (< 100ms)
+  http_fast_response:
+    prober: http
+    timeout: 1s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_header_not_matches_regexp:
+        - header: "Content-Type"
+          regexp: "text/html|application/json"
+
+  # Large file download probe
+  http_large_file:
+    prober: http
+    timeout: 30s
+    http:
+      method: HEAD
+      valid_status_codes: [200]
+      headers:
+        User-Agent: "Blackbox-Large-File-Probe/1.0"
+
+  # ============================================================================
+  # SECURITY PROBES
+  # ============================================================================
+
+  # Security headers probe
+  http_security_headers:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_header_not_matches_regexp:
+        - header: "X-Frame-Options"
+          regexp: "DENY|SAMEORIGIN"
+        - header: "X-Content-Type-Options"
+          regexp: "nosniff"

@@ -1,0 +1,280 @@
+# Prometheus Recording Rules for Events Platform
+# These rules pre-compute expensive queries to improve dashboard performance
+
+groups:
+  # ============================================================================
+  # SERVICE PERFORMANCE METRICS
+  # ============================================================================
+  - name: service_performance
+    interval: 30s
+    rules:
+    # HTTP request rates by service
+    - record: events_platform:http_requests:rate5m
+      expr: rate(http_requests_total[5m])
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    # HTTP error rates by service
+    - record: events_platform:http_errors:rate5m
+      expr: rate(http_requests_total{status=~"4..|5.."}[5m])
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    # HTTP error percentage by service
+    - record: events_platform:http_error_percentage:rate5m
+      expr: |
+        (
+          rate(http_requests_total{status=~"4..|5.."}[5m])
+          /
+          rate(http_requests_total[5m])
+        ) * 100
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    # Response time percentiles
+    - record: events_platform:http_duration:p50
+      expr: histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    - record: events_platform:http_duration:p90
+      expr: histogram_quantile(0.90, rate(http_request_duration_seconds_bucket[5m]))
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    - record: events_platform:http_duration:p95
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    - record: events_platform:http_duration:p99
+      expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+  # ============================================================================
+  # INFRASTRUCTURE METRICS
+  # ============================================================================
+  - name: infrastructure_metrics
+    interval: 30s
+    rules:
+    # CPU usage by instance
+    - record: events_platform:cpu_usage:percent
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+      labels:
+        instance: "{{ $labels.instance }}"
+
+    # Memory usage by instance
+    - record: events_platform:memory_usage:percent
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+      labels:
+        instance: "{{ $labels.instance }}"
+
+    # Disk usage by instance and mount
+    - record: events_platform:disk_usage:percent
+      expr: (1 - node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100
+      labels:
+        instance: "{{ $labels.instance }}"
+        mountpoint: "{{ $labels.mountpoint }}"
+
+    # Network throughput
+    - record: events_platform:network_receive:bytes_per_second
+      expr: rate(node_network_receive_bytes_total[5m])
+      labels:
+        instance: "{{ $labels.instance }}"
+        device: "{{ $labels.device }}"
+
+    - record: events_platform:network_transmit:bytes_per_second
+      expr: rate(node_network_transmit_bytes_total[5m])
+      labels:
+        instance: "{{ $labels.instance }}"
+        device: "{{ $labels.device }}"
+
+  # ============================================================================
+  # DATABASE METRICS
+  # ============================================================================
+  - name: database_metrics
+    interval: 30s
+    rules:
+    # PostgreSQL connection utilization
+    - record: events_platform:postgres_connections:utilization_percent
+      expr: (pg_stat_activity_count / pg_settings_max_connections) * 100
+      labels:
+        instance: "{{ $labels.instance }}"
+
+    # PostgreSQL query rate
+    - record: events_platform:postgres_queries:rate5m
+      expr: rate(pg_stat_database_tup_inserted[5m]) + rate(pg_stat_database_tup_updated[5m]) + rate(pg_stat_database_tup_deleted[5m])
+      labels:
+        instance: "{{ $labels.instance }}"
+        database: "{{ $labels.datname }}"
+
+    # Redis memory utilization
+    - record: events_platform:redis_memory:utilization_percent
+      expr: (redis_memory_used_bytes / redis_memory_max_bytes) * 100
+      labels:
+        instance: "{{ $labels.instance }}"
+
+    # Redis operations rate
+    - record: events_platform:redis_ops:rate5m
+      expr: rate(redis_commands_processed_total[5m])
+      labels:
+        instance: "{{ $labels.instance }}"
+
+  # ============================================================================
+  # MESSAGING METRICS
+  # ============================================================================
+  - name: messaging_metrics
+    interval: 30s
+    rules:
+    # NATS message rates
+    - record: events_platform:nats_messages:in_rate5m
+      expr: rate(nats_server_in_msgs[5m])
+      labels:
+        instance: "{{ $labels.instance }}"
+
+    - record: events_platform:nats_messages:out_rate5m
+      expr: rate(nats_server_out_msgs[5m])
+      labels:
+        instance: "{{ $labels.instance }}"
+
+    # Kafka consumer lag
+    - record: events_platform:kafka_consumer_lag:total
+      expr: sum by(consumer_group, topic) (kafka_consumer_lag_sum)
+      labels:
+        consumer_group: "{{ $labels.consumer_group }}"
+        topic: "{{ $labels.topic }}"
+
+    # Kafka throughput
+    - record: events_platform:kafka_messages:in_rate5m
+      expr: rate(kafka_server_brokertopicmetrics_messagesin_total[5m])
+      labels:
+        topic: "{{ $labels.topic }}"
+
+    - record: events_platform:kafka_bytes:in_rate5m
+      expr: rate(kafka_server_brokertopicmetrics_bytesin_total[5m])
+      labels:
+        topic: "{{ $labels.topic }}"
+
+  # ============================================================================
+  # APPLICATION METRICS
+  # ============================================================================
+  - name: application_metrics
+    interval: 30s
+    rules:
+    # WebSocket connections
+    - record: events_platform:websocket_connections:total
+      expr: websocket_connections_current
+      labels:
+        service: "{{ $labels.service }}"
+
+    # ML prediction rates and accuracy
+    - record: events_platform:ml_predictions:rate5m
+      expr: rate(ml_predictions_total[5m])
+      labels:
+        service: "{{ $labels.service }}"
+        model: "{{ $labels.model }}"
+
+    - record: events_platform:ml_prediction_accuracy:percent
+      expr: (rate(ml_predictions_correct_total[5m]) / rate(ml_predictions_total[5m])) * 100
+      labels:
+        service: "{{ $labels.service }}"
+        model: "{{ $labels.model }}"
+
+    # Analytics processing rates
+    - record: events_platform:analytics_events:rate5m
+      expr: rate(analytics_events_processed_total[5m])
+      labels:
+        service: "{{ $labels.service }}"
+        event_type: "{{ $labels.event_type }}"
+
+    # Curation service metrics
+    - record: events_platform:curation_tasks:completion_rate5m
+      expr: rate(curation_tasks_completed_total[5m])
+      labels:
+        service: "{{ $labels.service }}"
+        task_type: "{{ $labels.task_type }}"
+
+  # ============================================================================
+  # BUSINESS METRICS
+  # ============================================================================
+  - name: business_metrics
+    interval: 60s
+    rules:
+    # Event creation rates
+    - record: events_platform:events_created:rate1h
+      expr: rate(events_created_total[1h])
+
+    - record: events_platform:events_created:rate24h
+      expr: rate(events_created_total[24h])
+
+    # User activity
+    - record: events_platform:user_registrations:rate1h
+      expr: rate(user_registrations_total[1h])
+
+    - record: events_platform:user_logins:rate1h
+      expr: rate(user_logins_total[1h])
+
+    # Event registrations
+    - record: events_platform:event_registrations:rate1h
+      expr: rate(event_registrations_total[1h])
+
+    - record: events_platform:event_registrations:rate24h
+      expr: rate(event_registrations_total[24h])
+
+    # Payment metrics
+    - record: events_platform:payments_completed:rate1h
+      expr: rate(payments_completed_total[1h])
+
+    - record: events_platform:payment_success_rate:percent1h
+      expr: (rate(payments_completed_total{status="success"}[1h]) / rate(payments_attempted_total[1h])) * 100
+
+    # Search metrics
+    - record: events_platform:search_queries:rate5m
+      expr: rate(search_queries_total[5m])
+
+    - record: events_platform:search_queries:rate1h
+      expr: rate(search_queries_total[1h])
+
+    # Revenue metrics (if available)
+    - record: events_platform:revenue:rate1h
+      expr: rate(revenue_total[1h])
+
+    - record: events_platform:revenue:rate24h
+      expr: rate(revenue_total[24h])
+
+  # ============================================================================
+  # AGGREGATED SERVICE HEALTH
+  # ============================================================================
+  - name: service_health
+    interval: 15s
+    rules:
+    # Service availability
+    - record: events_platform:service_up:bool
+      expr: up
+      labels:
+        job: "{{ $labels.job }}"
+        service: "{{ $labels.service }}"
+
+    # Overall platform health (percentage of services up)
+    - record: events_platform:platform_health:percent
+      expr: (count(up == 1) / count(up)) * 100
+
+    # Go services health
+    - record: events_platform:go_services_health:percent
+      expr: (count(up{language="go"} == 1) / count(up{language="go"})) * 100
+
+    # Python services health
+    - record: events_platform:python_services_health:percent
+      expr: (count(up{language="python"} == 1) / count(up{language="python"})) * 100
+
+    # Critical services health (gateway and core services)
+    - record: events_platform:critical_services_health:percent
+      expr: (count(up{tier=~"gateway|core"} == 1) / count(up{tier=~"gateway|core"})) * 100

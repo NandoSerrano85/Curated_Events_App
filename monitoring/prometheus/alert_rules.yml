@@ -1,0 +1,319 @@
+# Prometheus Alert Rules for Events Platform
+# These rules define when alerts should be triggered based on metrics
+
+groups:
+  # ============================================================================
+  # SERVICE AVAILABILITY ALERTS
+  # ============================================================================
+  - name: service_availability
+    rules:
+    - alert: ServiceDown
+      expr: up == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: availability
+      annotations:
+        summary: "Service {{ $labels.job }} is down"
+        description: "{{ $labels.job }} service has been down for more than 1 minute"
+        runbook: "Check service logs and restart if necessary"
+
+    - alert: HighErrorRate
+      expr: (rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])) * 100 > 10
+      for: 2m
+      labels:
+        severity: warning
+        category: errors
+      annotations:
+        summary: "High error rate on {{ $labels.service }}"
+        description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.service }}"
+
+    - alert: CriticalErrorRate
+      expr: (rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])) * 100 > 25
+      for: 1m
+      labels:
+        severity: critical
+        category: errors
+      annotations:
+        summary: "Critical error rate on {{ $labels.service }}"
+        description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.service }}"
+
+  # ============================================================================
+  # PERFORMANCE ALERTS
+  # ============================================================================
+  - name: performance
+    rules:
+    - alert: HighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1.0
+      for: 3m
+      labels:
+        severity: warning
+        category: performance
+      annotations:
+        summary: "High response time on {{ $labels.service }}"
+        description: "95th percentile response time is {{ $value }}s for {{ $labels.service }}"
+
+    - alert: VeryHighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5.0
+      for: 1m
+      labels:
+        severity: critical
+        category: performance
+      annotations:
+        summary: "Very high response time on {{ $labels.service }}"
+        description: "95th percentile response time is {{ $value }}s for {{ $labels.service }}"
+
+    - alert: HighRequestRate
+      expr: rate(http_requests_total[5m]) > 1000
+      for: 2m
+      labels:
+        severity: info
+        category: traffic
+      annotations:
+        summary: "High request rate on {{ $labels.service }}"
+        description: "Request rate is {{ $value }} req/s for {{ $labels.service }}"
+
+  # ============================================================================
+  # INFRASTRUCTURE ALERTS
+  # ============================================================================
+  - name: infrastructure
+    rules:
+    - alert: HighCPUUsage
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+      for: 5m
+      labels:
+        severity: warning
+        category: resources
+      annotations:
+        summary: "High CPU usage on {{ $labels.instance }}"
+        description: "CPU usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+    - alert: CriticalCPUUsage
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+      for: 2m
+      labels:
+        severity: critical
+        category: resources
+      annotations:
+        summary: "Critical CPU usage on {{ $labels.instance }}"
+        description: "CPU usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+    - alert: HighMemoryUsage
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+      for: 5m
+      labels:
+        severity: warning
+        category: resources
+      annotations:
+        summary: "High memory usage on {{ $labels.instance }}"
+        description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+    - alert: CriticalMemoryUsage
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+      for: 2m
+      labels:
+        severity: critical
+        category: resources
+      annotations:
+        summary: "Critical memory usage on {{ $labels.instance }}"
+        description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+    - alert: HighDiskUsage
+      expr: (1 - node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+        category: resources
+      annotations:
+        summary: "High disk usage on {{ $labels.instance }}"
+        description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+
+    - alert: CriticalDiskUsage
+      expr: (1 - node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100 > 95
+      for: 2m
+      labels:
+        severity: critical
+        category: resources
+      annotations:
+        summary: "Critical disk usage on {{ $labels.instance }}"
+        description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+
+  # ============================================================================
+  # DATABASE ALERTS
+  # ============================================================================
+  - name: database
+    rules:
+    - alert: PostgreSQLDown
+      expr: pg_up == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: database
+      annotations:
+        summary: "PostgreSQL is down"
+        description: "PostgreSQL database is not responding"
+
+    - alert: PostgreSQLHighConnections
+      expr: pg_stat_activity_count / pg_settings_max_connections * 100 > 80
+      for: 3m
+      labels:
+        severity: warning
+        category: database
+      annotations:
+        summary: "PostgreSQL high connection usage"
+        description: "Connection usage is {{ $value | humanizePercentage }} of max connections"
+
+    - alert: PostgreSQLLongRunningQueries
+      expr: pg_stat_activity_max_tx_duration > 300
+      for: 5m
+      labels:
+        severity: warning
+        category: database
+      annotations:
+        summary: "PostgreSQL long running queries detected"
+        description: "Longest running transaction is {{ $value }}s"
+
+    - alert: RedisDown
+      expr: redis_up == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: cache
+      annotations:
+        summary: "Redis is down"
+        description: "Redis cache server is not responding"
+
+    - alert: RedisHighMemoryUsage
+      expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 90
+      for: 3m
+      labels:
+        severity: warning
+        category: cache
+      annotations:
+        summary: "Redis high memory usage"
+        description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+  # ============================================================================
+  # MESSAGE QUEUE ALERTS
+  # ============================================================================
+  - name: messaging
+    rules:
+    - alert: NATSDown
+      expr: nats_server_info == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: messaging
+      annotations:
+        summary: "NATS server is down"
+        description: "NATS messaging server is not responding"
+
+    - alert: NATSHighSlowConsumers
+      expr: nats_server_slow_consumers > 10
+      for: 2m
+      labels:
+        severity: warning
+        category: messaging
+      annotations:
+        summary: "NATS high slow consumer count"
+        description: "{{ $value }} slow consumers detected in NATS"
+
+    - alert: KafkaDown
+      expr: kafka_server_running == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: messaging
+      annotations:
+        summary: "Kafka broker is down"
+        description: "Kafka messaging broker is not responding"
+
+    - alert: KafkaHighLag
+      expr: kafka_consumer_lag_sum > 10000
+      for: 3m
+      labels:
+        severity: warning
+        category: messaging
+      annotations:
+        summary: "High Kafka consumer lag"
+        description: "Consumer lag is {{ $value }} messages for topic {{ $labels.topic }}"
+
+  # ============================================================================
+  # APPLICATION-SPECIFIC ALERTS
+  # ============================================================================
+  - name: application
+    rules:
+    - alert: WebSocketConnectionSpike
+      expr: increase(websocket_connections_total[5m]) > 100
+      for: 2m
+      labels:
+        severity: info
+        category: websocket
+      annotations:
+        summary: "WebSocket connection spike"
+        description: "{{ $value }} new WebSocket connections in last 5 minutes"
+
+    - alert: MLPredictionErrors
+      expr: rate(ml_prediction_errors_total[5m]) > 10
+      for: 3m
+      labels:
+        severity: warning
+        category: ml
+      annotations:
+        summary: "High ML prediction error rate"
+        description: "{{ $value }} ML prediction errors per second"
+
+    - alert: AnalyticsProcessingBacklog
+      expr: analytics_queue_size > 1000
+      for: 5m
+      labels:
+        severity: warning
+        category: analytics
+      annotations:
+        summary: "Analytics processing backlog"
+        description: "{{ $value }} events in analytics processing queue"
+
+    - alert: PaymentFailureRate
+      expr: (rate(payment_attempts_total{status="failed"}[5m]) / rate(payment_attempts_total[5m])) * 100 > 5
+      for: 2m
+      labels:
+        severity: warning
+        category: business
+      annotations:
+        summary: "High payment failure rate"
+        description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+  # ============================================================================
+  # BUSINESS METRICS ALERTS
+  # ============================================================================
+  - name: business_metrics
+    rules:
+    - alert: LowEventCreationRate
+      expr: rate(events_created_total[1h]) < 1
+      for: 30m
+      labels:
+        severity: info
+        category: business
+      annotations:
+        summary: "Low event creation rate"
+        description: "Only {{ $value }} events created per hour"
+
+    - alert: HighEventCancellationRate
+      expr: (rate(events_cancelled_total[1h]) / rate(events_created_total[1h])) * 100 > 20
+      for: 15m
+      labels:
+        severity: warning
+        category: business
+      annotations:
+        summary: "High event cancellation rate"
+        description: "Event cancellation rate is {{ $value | humanizePercentage }}"
+
+    - alert: SearchPerformanceDegradation
+      expr: histogram_quantile(0.95, rate(search_query_duration_seconds_bucket[5m])) > 2.0
+      for: 3m
+      labels:
+        severity: warning
+        category: search
+      annotations:
+        summary: "Search performance degradation"
+        description: "95th percentile search time is {{ $value }}s"

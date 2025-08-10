@@ -1,0 +1,42 @@
+# Grafana dashboard provisioning configuration
+# This automatically loads dashboard JSON files from specified directories
+
+apiVersion: 1
+
+# Dashboard providers configuration
+providers:
+  # Events Platform dashboards
+  - name: 'events-platform'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+
+  # Infrastructure dashboards
+  - name: 'infrastructure'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/infrastructure
+
+  # Application dashboards  
+  - name: 'applications'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/applications
+
+  # Business dashboards
+  - name: 'business'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/business
