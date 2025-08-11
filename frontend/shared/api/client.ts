@@ -3,8 +3,21 @@ import { useAuthStore } from '../store/authStore';
 import { useAppStore } from '../store/appStore';
 import { APIError } from '../types';
 
-// API configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+// API configuration - Support multiple environments
+const getEnvVar = (name: string): string | undefined => {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    return import.meta.env[name];
+  }
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[name];
+  }
+  return undefined;
+};
+
+const API_BASE_URL = getEnvVar('VITE_API_URL') || 
+                    getEnvVar('NEXT_PUBLIC_API_URL') || 
+                    getEnvVar('REACT_APP_API_URL') || 
+                    'http://localhost:8080/api';
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000; // 1 second
@@ -185,7 +198,10 @@ export const checkApiHealth = async (): Promise<boolean> => {
 };
 
 // Request/Response logging for development
-if (process.env.NODE_ENV === 'development') {
+const isDevelopment = (typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'development') || 
+                     (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development');
+
+if (isDevelopment) {
   apiClient.interceptors.request.use((config) => {
     console.debug('🚀 API Request:', {
       method: config.method?.toUpperCase(),

@@ -34,11 +34,11 @@ func Load() *Config {
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
 		JWTSecret:       getEnv("JWT_SECRET", "your-secret-key"),
 		
-		UserServiceURL:   getEnv("USER_SERVICE_URL", "http://user-service:8081"),
-		EventServiceURL:  getEnv("EVENT_SERVICE_URL", "http://event-service:8082"),
-		SearchServiceURL: getEnv("SEARCH_SERVICE_URL", "http://search-service:8083"),
-		PaymentServiceURL: getEnv("PAYMENT_SERVICE_URL", "http://payment-service:8084"),
-		WebSocketURL:     getEnv("WEBSOCKET_URL", "http://websocket-gateway:8085"),
+		UserServiceURL:   getEnv("USER_SERVICE_URL", "http://localhost:8081"),
+		EventServiceURL:  getEnv("EVENT_SERVICE_URL", "http://localhost:8082"),
+		SearchServiceURL: getEnv("SEARCH_SERVICE_URL", "http://localhost:8083"),
+		PaymentServiceURL: getEnv("PAYMENT_SERVICE_URL", "http://localhost:8084"),
+		WebSocketURL:     getEnv("WEBSOCKET_URL", "http://localhost:8084"),
 		
 		RateLimitRPS:     getEnvInt("RATE_LIMIT_RPS", 100),
 		RateLimitBurst:   getEnvInt("RATE_LIMIT_BURST", 200),

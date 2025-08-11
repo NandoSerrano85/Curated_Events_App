@@ -21,9 +21,9 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, logger *zap.Logger) {
 	// Public routes
 	auth := v1.Group("/auth")
 	{
-		auth.POST("/register", handlers.ProxyToUserService(cfg.UserServiceURL))
-		auth.POST("/login", handlers.ProxyToUserService(cfg.UserServiceURL))
-		auth.POST("/refresh", handlers.ProxyToUserService(cfg.UserServiceURL))
+		auth.POST("/register", handlers.ProxyToAuthService(cfg.UserServiceURL))
+		auth.POST("/login", handlers.ProxyToAuthService(cfg.UserServiceURL))
+		auth.POST("/refresh", handlers.ProxyToAuthService(cfg.UserServiceURL))
 	}
 
 	// Public events (search, browse)

@@ -64,7 +64,7 @@ const (
 	MessageTypeLiveLocation    MessageType = "live_location"
 	MessageTypeLiveAttendance  MessageType = "live_attendance"
 	MessageTypeLivePolls       MessageType = "live_polls"
-	MessageTypeLiveQ&A         MessageType = "live_qna"
+	MessageTypeLiveQnA         MessageType = "live_qna"
 )
 
 type Room struct {

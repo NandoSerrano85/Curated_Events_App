@@ -23,6 +23,10 @@ func ProxyToUserService(serviceURL string) gin.HandlerFunc {
 	return createReverseProxy(serviceURL, "/api/v1/users")
 }
 
+func ProxyToAuthService(serviceURL string) gin.HandlerFunc {
+	return createReverseProxy(serviceURL, "/api/v1/auth")
+}
+
 func ProxyToEventService(serviceURL string) gin.HandlerFunc {
 	return createReverseProxy(serviceURL, "/api/v1/events")
 }
@@ -53,8 +57,10 @@ func createReverseProxy(serviceURL, pathPrefix string) gin.HandlerFunc {
 		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 		req.Header.Set("X-Forwarded-Proto", "http")
 		
-		// Remove the API gateway prefix from the path
-		req.URL.Path = pathPrefix + req.URL.Path
+		// The request comes in as "/api/v1/auth/register" from the gateway
+		// We want to forward it to the User Service as "/api/v1/auth/register"
+		// So we keep the path as-is since both gateway and service use the same API structure
+		// req.URL.Path = req.URL.Path (no change needed)
 		req.URL.RawQuery = req.URL.RawQuery
 	}
 	

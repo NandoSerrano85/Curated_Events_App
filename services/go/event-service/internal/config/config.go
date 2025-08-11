@@ -13,6 +13,7 @@ type Config struct {
 	DatabaseURL  string
 	RedisURL     string
 	NATSURLs     []string
+	JWTSecret    string
 	
 	// Cache settings
 	CacheTTL        time.Duration
@@ -37,9 +38,10 @@ func Load() *Config {
 	return &Config{
 		Environment: getEnv("ENVIRONMENT", "development"),
 		Port:       getEnv("PORT", "8082"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://user:password@localhost/events_db?sslmode=disable"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://events_user:events_password@localhost/events_platform?sslmode=disable"),
 		RedisURL:   getEnv("REDIS_URL", "redis://localhost:6379"),
 		NATSURLs:   strings.Split(getEnv("NATS_URLS", "nats://localhost:4222"), ","),
+		JWTSecret:  getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 		
 		CacheTTL:       time.Duration(getEnvInt("CACHE_TTL_MINUTES", 30)) * time.Minute,
 		EventCacheSize: getEnvInt("EVENT_CACHE_SIZE", 1000),

@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"events-platform/services/go/search-service/internal/config"
 	"events-platform/services/go/search-service/internal/elasticsearch"

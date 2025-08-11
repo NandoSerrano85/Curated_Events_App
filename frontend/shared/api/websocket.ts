@@ -3,8 +3,21 @@ import { useAuthStore } from '../store/authStore';
 import { useAppStore } from '../store/appStore';
 import { WebSocketMessage, RealTimeUpdate } from '../types';
 
-// WebSocket configuration
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || process.env.REACT_APP_WS_URL || 'ws://localhost:8085';
+// WebSocket configuration - Support multiple environments
+const getEnvVar = (name: string): string | undefined => {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    return import.meta.env[name];
+  }
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[name];
+  }
+  return undefined;
+};
+
+const WS_BASE_URL = getEnvVar('VITE_WS_URL') || 
+                   getEnvVar('NEXT_PUBLIC_WS_URL') || 
+                   getEnvVar('REACT_APP_WS_URL') || 
+                   'ws://localhost:8085';
 const RECONNECTION_DELAY = 1000;
 const MAX_RECONNECTION_ATTEMPTS = 5;
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds

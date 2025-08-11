@@ -45,7 +45,7 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		Environment: getEnv("ENVIRONMENT", "development"),
-		Port:       getEnv("PORT", "8085"),
+		Port:       getEnv("PORT", "8084"),
 		RedisURL:   getEnv("REDIS_URL", "redis://localhost:6379"),
 		NATSURLs:   strings.Split(getEnv("NATS_URLS", "nats://localhost:4222"), ","),
 		JWTSecret:  getEnv("JWT_SECRET", "your-secret-key"),

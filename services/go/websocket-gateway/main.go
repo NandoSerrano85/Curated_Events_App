@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"events-platform/services/go/websocket-gateway/internal/config"
 	"events-platform/services/go/websocket-gateway/internal/database"
@@ -53,7 +52,7 @@ func main() {
 
 	port := cfg.Port
 	if port == "" {
-		port = "8085"
+		port = "8084"
 	}
 
 	logger.Info("Starting WebSocket Gateway", zap.String("port", port))

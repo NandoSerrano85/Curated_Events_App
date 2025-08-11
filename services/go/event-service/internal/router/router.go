@@ -21,7 +21,7 @@ func SetupRoutes(
 	// Global middleware
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Recovery(logger))
-	r.Use(middleware.CORS())
+	// CORS handled by API Gateway
 	r.Use(middleware.Metrics())
 
 	// Health check

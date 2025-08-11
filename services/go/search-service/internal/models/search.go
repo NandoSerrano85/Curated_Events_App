@@ -137,44 +137,6 @@ type SearchAnalytics struct {
 	Timestamp    time.Time `json:"timestamp" db:"timestamp"`
 }
 
-// Event document structure for Elasticsearch
-type EventDocument struct {
-	ID               string    `json:"id"`
-	Title            string    `json:"title"`
-	Description      string    `json:"description"`
-	ShortDescription string    `json:"short_description"`
-	Category         string    `json:"category"`
-	Tags             []string  `json:"tags"`
-	OrganizerID      string    `json:"organizer_id"`
-	OrganizerName    string    `json:"organizer_name"`
-	VenueName        string    `json:"venue_name"`
-	VenueAddress     string    `json:"venue_address"`
-	Location         GeoPoint  `json:"location,omitempty"`
-	IsVirtual        bool      `json:"is_virtual"`
-	VirtualURL       string    `json:"virtual_url,omitempty"`
-	StartTime        time.Time `json:"start_time"`
-	EndTime          time.Time `json:"end_time"`
-	IsPaid           bool      `json:"is_paid"`
-	Price            *float64  `json:"price"`
-	Currency         string    `json:"currency"`
-	MaxCapacity      *int      `json:"max_capacity"`
-	CurrentCapacity  int       `json:"current_capacity"`
-	Images           []string  `json:"images"`
-	Status           string    `json:"status"`
-	IsPublished      bool      `json:"is_published"`
-	IsFeatured       bool      `json:"is_featured"`
-	CurationScore    *float64  `json:"curation_score"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	PublishedAt      *time.Time `json:"published_at"`
-	
-	// Computed fields for search
-	PriceRange       string    `json:"price_range"`       // "free", "0-25", "25-50", "50-100", "100+"
-	DateRange        string    `json:"date_range"`        // "today", "this_week", "this_month", "later"
-	AvailableSpots   int       `json:"available_spots"`
-	PopularityScore  float64   `json:"popularity_score"`  // Based on registrations, views, etc.
-	SearchText       string    `json:"search_text"`       // Combined searchable text
-}
 
 type GeoPoint struct {
 	Lat float64 `json:"lat"`
@@ -183,4 +145,89 @@ type GeoPoint struct {
 
 type BulkIndexRequest struct {
 	Events []EventDocument `json:"events"`
+}
+
+// Additional request/response models for SearchService
+type AdvancedSearchRequest struct {
+	Query             string     `json:"query"`
+	Category          string     `json:"category"`
+	IsVirtual         *bool      `json:"is_virtual"`
+	IsFree            *bool      `json:"is_free"`
+	DateRange         string     `json:"date_range"`
+	PriceRange        string     `json:"price_range"`
+	Tags              []string   `json:"tags"`
+	SortBy            string     `json:"sort_by"`
+	Size              int        `json:"size"`
+	From              int        `json:"from"`
+	Location          *GeoFilter `json:"location"`
+	StartDate         *time.Time `json:"start_date"`
+	EndDate           *time.Time `json:"end_date"`
+	MinPrice          *float64   `json:"min_price"`
+	MaxPrice          *float64   `json:"max_price"`
+	HasAvailableSpots *bool      `json:"has_available_spots"`
+	Featured          *bool      `json:"featured"`
+}
+
+type GeoFilter struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Radius    float64 `json:"radius"`
+}
+
+type SuggestionResponse struct {
+	Suggestions []string `json:"suggestions"`
+}
+
+// Simple SearchRequest for the SearchService
+type SimpleSearchRequest struct {
+	Query      string   `json:"query"`
+	Category   string   `json:"category"`
+	IsVirtual  *bool    `json:"is_virtual"`
+	IsFree     *bool    `json:"is_free"`
+	DateRange  string   `json:"date_range"`
+	PriceRange string   `json:"price_range"`
+	Tags       []string `json:"tags"`
+	SortBy     string   `json:"sort_by"`
+	Size       int      `json:"size"`
+	From       int      `json:"from"`
+}
+
+// Enhanced EventDocument with search score
+type EventDocument struct {
+	ID               string     `json:"id"`
+	Title            string     `json:"title"`
+	Description      string     `json:"description"`
+	ShortDescription string     `json:"short_description"`
+	Category         string     `json:"category"`
+	Tags             []string   `json:"tags"`
+	OrganizerID      string     `json:"organizer_id"`
+	OrganizerName    string     `json:"organizer_name"`
+	VenueName        string     `json:"venue_name"`
+	VenueAddress     string     `json:"venue_address"`
+	Location         GeoPoint   `json:"location,omitempty"`
+	IsVirtual        bool       `json:"is_virtual"`
+	VirtualURL       string     `json:"virtual_url,omitempty"`
+	StartTime        time.Time  `json:"start_time"`
+	EndTime          time.Time  `json:"end_time"`
+	IsPaid           bool       `json:"is_paid"`
+	Price            *float64   `json:"price"`
+	Currency         string     `json:"currency"`
+	MaxCapacity      *int       `json:"max_capacity"`
+	CurrentCapacity  int        `json:"current_capacity"`
+	Images           []string   `json:"images"`
+	Status           string     `json:"status"`
+	IsPublished      bool       `json:"is_published"`
+	IsFeatured       bool       `json:"is_featured"`
+	CurationScore    *float64   `json:"curation_score"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	PublishedAt      *time.Time `json:"published_at"`
+	
+	// Computed fields for search
+	PriceRange       string  `json:"price_range"`       // "free", "0-25", "25-50", "50-100", "100+"
+	DateRange        string  `json:"date_range"`        // "today", "this_week", "this_month", "later"
+	AvailableSpots   int     `json:"available_spots"`
+	PopularityScore  float64 `json:"popularity_score"`  // Based on registrations, views, etc.
+	SearchText       string  `json:"search_text"`       // Combined searchable text
+	SearchScore      *float64 `json:"search_score,omitempty"` // Search relevance score
 }

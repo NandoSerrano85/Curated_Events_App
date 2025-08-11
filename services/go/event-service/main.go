@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"events-platform/services/go/event-service/internal/config"
 	"events-platform/services/go/event-service/internal/database"

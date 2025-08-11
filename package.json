@@ -1,0 +1,26 @@
+{
+  "name": "curated-events-platform",
+  "version": "1.0.0",
+  "description": "Local development management for Curated Events Platform",
+  "scripts": {
+    "start": "./start-local.sh",
+    "stop": "./stop-local.sh",
+    "health": "./check-health.sh",
+    "reset": "./stop-local.sh && ./start-local.sh",
+    "logs": "tail -f logs/*.log",
+    "frontend": "cd frontend/web-app && npm run dev",
+    "admin": "cd frontend/admin-panel && npm run dev -- --port 3001",
+    "api": "cd services/go/api-gateway && go run main.go"
+  },
+  "keywords": [
+    "events",
+    "platform",
+    "microservices",
+    "local-development"
+  ],
+  "author": "Curated Events Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  }
+}

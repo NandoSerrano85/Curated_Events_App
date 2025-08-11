@@ -32,7 +32,7 @@ func Load() *Config {
 	return &Config{
 		Environment:  getEnv("ENVIRONMENT", "development"),
 		Port:        getEnv("PORT", "8081"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://user:password@localhost/events_db?sslmode=disable"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://events_user:events_password@localhost/events_platform?sslmode=disable"),
 		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379"),
 		JWTSecret:   getEnv("JWT_SECRET", "your-secret-key"),
 		

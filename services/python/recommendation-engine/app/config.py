@@ -3,7 +3,8 @@ import os
 from functools import lru_cache
 from typing import List, Optional
 
-from pydantic import BaseSettings, validator
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = ["*"]
     
     # Database settings
-    DATABASE_URL: str = "postgresql://user:password@localhost/events_db"
+    DATABASE_URL: str = "postgresql://events_user:events_password@localhost/events_platform"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
@@ -126,25 +127,25 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
     
-    @validator("ALLOWED_ORIGINS", pre=True)
+    @field_validator("ALLOWED_ORIGINS", mode="before")
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
     
-    @validator("DATABASE_URL", pre=True)
+    @field_validator("DATABASE_URL", mode="before")
     def validate_database_url(cls, v):
         if not v or not v.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_URL must be a valid PostgreSQL connection string")
         return v
     
-    @validator("DL_HIDDEN_DIMS", pre=True)
+    @field_validator("DL_HIDDEN_DIMS", mode="before")
     def parse_hidden_dims(cls, v):
         if isinstance(v, str):
             return [int(x.strip()) for x in v.split(",")]
         return v
     
-    @validator("AB_TEST_ALGORITHMS", pre=True)
+    @field_validator("AB_TEST_ALGORITHMS", mode="before")
     def parse_ab_test_algorithms(cls, v):
         if isinstance(v, str):
             return [alg.strip() for alg in v.split(",")]

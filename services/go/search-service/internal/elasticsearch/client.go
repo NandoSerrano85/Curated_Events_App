@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -166,33 +167,11 @@ func (c *Client) Suggest(index string, query map[string]interface{}) (*esapi.Res
 }
 
 func (c *Client) mapToJSON(data map[string]interface{}) string {
-	// Simple JSON marshal - in production, use proper JSON library
-	// This is a simplified implementation
-	result := "{"
-	i := 0
-	for k, v := range data {
-		if i > 0 {
-			result += ","
-		}
-		result += `"` + k + `":`
-		switch val := v.(type) {
-		case string:
-			result += `"` + val + `"`
-		case int:
-			result += string(rune(val))
-		case bool:
-			if val {
-				result += "true"
-			} else {
-				result += "false"
-			}
-		case map[string]interface{}:
-			result += c.mapToJSON(val)
-		default:
-			result += `"` + val.(string) + `"`
-		}
-		i++
+	// Use proper JSON marshaling
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		c.logger.Error("Failed to marshal JSON", zap.Error(err))
+		return "{}"
 	}
-	result += "}"
-	return result
+	return string(bytes)
 }

@@ -403,7 +403,7 @@ func (mh *MessageHandler) handleLiveQnA(msg *nats.Msg) {
 
 	wsMessage := models.Message{
 		ID:   uuid.New(),
-		Type: models.MessageTypeLiveQ&A,
+		Type: models.MessageTypeLiveQnA,
 		Data: qnaData,
 		Timestamp: time.Now(),
 	}

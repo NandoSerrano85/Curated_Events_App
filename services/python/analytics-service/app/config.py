@@ -3,7 +3,8 @@ import os
 from functools import lru_cache
 from typing import List, Optional, Dict, Any
 
-from pydantic import BaseSettings, validator
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = ["*"]
     
     # Database settings
-    DATABASE_URL: str = "postgresql://user:password@localhost/events_db"
+    DATABASE_URL: str = "postgresql://events_user:events_password@localhost/events_platform"
     DATABASE_POOL_SIZE: int = 15
     DATABASE_MAX_OVERFLOW: int = 25
     
@@ -132,37 +133,37 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
     
-    @validator("ALLOWED_ORIGINS", pre=True)
+    @field_validator("ALLOWED_ORIGINS", mode="before")
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
     
-    @validator("DATABASE_URL", pre=True)
+    @field_validator("DATABASE_URL", mode="before")
     def validate_database_url(cls, v):
         if not v or not v.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_URL must be a valid PostgreSQL connection string")
         return v
     
-    @validator("AGGREGATION_INTERVALS", pre=True)
+    @field_validator("AGGREGATION_INTERVALS", mode="before")
     def parse_aggregation_intervals(cls, v):
         if isinstance(v, str):
             return [interval.strip() for interval in v.split(",")]
         return v
     
-    @validator("COHORT_ANALYSIS_PERIODS", pre=True)
+    @field_validator("COHORT_ANALYSIS_PERIODS", mode="before")
     def parse_cohort_periods(cls, v):
         if isinstance(v, str):
             return [period.strip() for period in v.split(",")]
         return v
     
-    @validator("EXPORT_FORMATS", pre=True)
+    @field_validator("EXPORT_FORMATS", mode="before")
     def parse_export_formats(cls, v):
         if isinstance(v, str):
             return [fmt.strip() for fmt in v.split(",")]
         return v
     
-    @validator("ALERT_THRESHOLDS", pre=True)
+    @field_validator("ALERT_THRESHOLDS", mode="before")
     def parse_alert_thresholds(cls, v):
         if isinstance(v, str):
             # Parse from string format: "key1:value1,key2:value2"
